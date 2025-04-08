@@ -138,3 +138,7 @@ code-merge-mcp/
 ## 许可证
 
 MIT License
+
+## 致谢
+
+本项目基于 [TownBoats/codeMerge](https://github.com/TownBoats/codeMerge) 开发，感谢原作者的贡献。
