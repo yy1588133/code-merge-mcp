@@ -1,0 +1,23 @@
+{
+  "name": "code-merge-mcp",
+  "version": "0.3.1",
+  "description": "MCP server for code merging",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node start-server.js",
+    "test": "node test-client.js",
+    "debug": "node debug-client.js",
+    "cline": "node cline-server.js",
+    "test-templates": "node test-templates.js",
+    "final-test": "node final-test.js",
+    "test-templates-format": "node test-templates-format.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.9.0",
+    "ignore": "^7.0.3",
+    "zod": "^3.24.2"
+  },
+  "bin": {
+    "code-merge-mcp": "./bin/cli.js"
+  }
+}
