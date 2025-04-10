@@ -2,9 +2,29 @@
 const path = require('path');
 const fs = require('fs').promises;
 const { listFiles } = require('../core/file-lister');
-const { readFiles } = require('../core/file-reader');
+const { readFiles, getFileCache } = require('../core/file-reader');
 const { compressContent } = require('../core/compressor');
-// JSON utils are used in the MCP server layer, not needed here directly
+const MemoryMonitor = require('../core/memory-monitor');
+const { BINARY_EXTENSIONS } = require('../core/filter');
+
+// 创建内存监控器
+const memoryMonitor = new MemoryMonitor({
+    warningThreshold: 512,  // 512MB警告
+    criticalThreshold: 768, // 768MB临界
+    onWarning: (usage) => {
+        console.error(`merge_content: 内存使用警告 ${Math.round(usage.heapUsed / 1024 / 1024)}MB`);
+    },
+    onCritical: (usage) => {
+        console.error(`merge_content: 内存使用临界 ${Math.round(usage.heapUsed / 1024 / 1024)}MB，尝试释放内存`);
+        // 尝试释放内存
+        getFileCache().invalidate();
+        if (global.gc) {
+            global.gc();
+        }
+    }
+});
+
+// 注意：我们使用readFiles函数内部的批处理器，不需要在这里显式使用
 /**
  * Handles the 'merge_content' MCP request.
  * @param {object} parameters Request parameters.
@@ -19,8 +39,22 @@ async function handleRequest(parameters) {
     console.error('merge_content: Starting execution');
     const startTime = Date.now();
 
-    const { path: targetPath, compress = false, use_gitignore, ignore_git, custom_blacklist } = parameters;
+    // 启动内存监控
+    memoryMonitor.start(10000); // 每10秒检查一次
+
+    const {
+        path: targetPath,
+        compress = false,
+        use_gitignore,
+        ignore_git,
+        custom_blacklist,
+        use_cache = true,
+        use_streams = true,
+        max_files = 1000 // 限制处理文件数量
+    } = parameters;
+
     if (!targetPath) {
+        memoryMonitor.stop();
         throw new Error("Missing required parameter: 'path'.");
     }
 
@@ -47,6 +81,13 @@ async function handleRequest(parameters) {
                 ignoreGit: ignore_git || true,
                 customBlacklist: custom_blacklist || []
             });
+
+            // 限制文件数量以防止内存耗尽
+            if (filesToProcess.length > max_files) {
+                console.error(`merge_content: Limiting files from ${filesToProcess.length} to ${max_files}`);
+                filesToProcess = filesToProcess.slice(0, max_files);
+            }
+
             console.error(`merge_content: Found ${filesToProcess.length} files in directory`);
 
         } else if (stats.isFile()) {
@@ -61,15 +102,17 @@ async function handleRequest(parameters) {
 
             // Check if it's a binary file
             const fileExtension = path.extname(relativeFilePath).toLowerCase();
-            if (require('../core/filter').BINARY_EXTENSIONS.has(fileExtension)) {
+            if (BINARY_EXTENSIONS.has(fileExtension)) {
                 filesToProcess = []; // Clear if binary
                 console.error(`merge_content: Skipping binary file: ${relativeFilePath}`);
             }
         } else {
             // Path exists but is not a file or directory (e.g., socket, fifo)
+            memoryMonitor.stop();
             throw new Error(`Path '${targetPath}' is not a file or directory.`);
         }
     } catch (error) {
+        memoryMonitor.stop();
         if (error.code === 'ENOENT') {
             throw new Error(`Path '${targetPath}' not found.`);
         }
@@ -79,12 +122,23 @@ async function handleRequest(parameters) {
     if (filesToProcess.length === 0) {
         // If no files are left after filtering (or it was an ignored/binary single file)
         console.error(`merge_content: No files to process, returning empty content`);
+        memoryMonitor.stop();
         return { merged_content: "" }; // Return empty content
     }
 
     // Read the content of the filtered files
     console.error(`merge_content: Reading content of ${filesToProcess.length} files`);
-    const fileContentsMap = await readFiles(filesToProcess, rootPath);
+
+    // 使用优化的文件读取函数，支持缓存和流式处理
+    const fileContentsMap = await readFiles(filesToProcess, rootPath, {
+        useCache: use_cache,
+        useStreams: use_streams,
+        progressCallback: (progress) => {
+            if (progress.percent % 10 === 0) { // 每完成10%输出一次进度
+                console.error(`merge_content: Reading progress ${progress.percent}% (${progress.completed}/${progress.total})`);
+            }
+        }
+    });
 
     // Combine contents with headers, ensuring consistent order
     console.error(`merge_content: Combining file contents`);
@@ -119,14 +173,25 @@ async function handleRequest(parameters) {
         finalContent = compressContent(finalContent);
     }
 
+    // 获取内存使用情况
+    const memoryUsage = memoryMonitor.getMemoryUsage();
     const executionTime = Date.now() - startTime;
-    console.error(`merge_content: Execution completed in ${executionTime}ms`);
 
-    // Return the merged content
-    // The content will be properly handled by the MCP server's adaptToolResult function
-    // which will ensure it's safe for JSON serialization
+    // 停止内存监控
+    memoryMonitor.stop();
+
+    console.error(`merge_content: Execution completed in ${executionTime}ms, memory used: ${memoryUsage.heapUsedMB}MB`);
+
+    // 返回结果并包含性能指标
     return {
-        merged_content: finalContent
+        merged_content: finalContent,
+        performance: {
+            executionTime,
+            filesProcessed,
+            totalFiles: filesToProcess.length,
+            memoryUsedMB: memoryUsage.heapUsedMB,
+            cacheStats: use_cache ? getFileCache().getStats() : null
+        }
     };
 }
 module.exports = {

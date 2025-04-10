@@ -30,6 +30,34 @@ process.stderr.on('error', (err) => {
     }
 });
 
+// 引入内存监控器
+const MemoryMonitor = require('./core/memory-monitor');
+
+// 创建全局内存监控器
+const globalMemoryMonitor = new MemoryMonitor({
+    warningThreshold: 1024,  // 1GB警告
+    criticalThreshold: 1536, // 1.5GB临界
+    onWarning: (usage) => {
+        console.error(`[MEMORY WARNING] Server memory usage: ${Math.round(usage.heapUsed / 1024 / 1024)}MB`);
+    },
+    onCritical: (usage) => {
+        console.error(`[MEMORY CRITICAL] Server memory usage: ${Math.round(usage.heapUsed / 1024 / 1024)}MB, attempting to free memory`);
+        // 尝试强制垃圾回收
+        if (global.gc) {
+            global.gc();
+            console.error(`[MEMORY] Garbage collection completed`);
+        }
+    }
+});
+
+// 启动内存监控
+globalMemoryMonitor.start(30000); // 每30秒检查一次
+
+// 在进程退出时停止监控
+process.on('exit', () => {
+    globalMemoryMonitor.stop();
+});
+
 // Start the server
 console.error('Starting MCP Server with SDK...');
 try {
@@ -37,9 +65,14 @@ try {
     const { startServer } = require('./mcp-server');
     startServer();
     console.error("MCP Server with SDK loaded successfully.");
+
+    // 输出初始内存使用情况
+    const memoryUsage = globalMemoryMonitor.getMemoryUsage();
+    console.error(`Initial memory usage: ${memoryUsage.heapUsedMB}MB / ${memoryUsage.heapTotalMB}MB`);
 } catch (error) {
     // Log any critical error during startup and exit
     console.error("Failed to start MCP Server:", error);
+    globalMemoryMonitor.stop();
     process.exit(1); // Exit with a non-zero code indicates an error
 }
 

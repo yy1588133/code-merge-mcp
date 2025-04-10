@@ -67,6 +67,21 @@ function adaptToolResult(result) {
             type: 'text',
             text: result.merged_content
         });
+
+        // 如果有性能指标，添加到输出
+        if (result.performance) {
+            content.push({
+                type: 'text',
+                text: `\n\n--- Performance Metrics ---\n` +
+                      `Execution time: ${result.performance.executionTime}ms\n` +
+                      `Files processed: ${result.performance.filesProcessed}/${result.performance.totalFiles}\n` +
+                      `Memory used: ${result.performance.memoryUsedMB}MB\n` +
+                      (result.performance.cacheStats ?
+                        `Cache hit rate: ${Math.round(result.performance.cacheStats.hitRate * 100)}%\n` +
+                        `Cache size: ${result.performance.cacheStats.size} files (${result.performance.cacheStats.bytesStoredMB}MB)` :
+                        `Cache: disabled`)
+            });
+        }
     }
 
     // If no specific handling, convert any string properties to text content
@@ -139,7 +154,10 @@ if (mergeContentHandler) {
             compress: z.boolean().optional().describe('Whether to compress the output.'),
             use_gitignore: z.boolean().optional().describe('Whether to use .gitignore rules.'),
             ignore_git: z.boolean().optional().describe('Whether to ignore the .git directory.'),
-            custom_blacklist: z.array(z.string()).optional().describe('Custom blacklist items.')
+            custom_blacklist: z.array(z.string()).optional().describe('Custom blacklist items.'),
+            use_cache: z.boolean().optional().describe('Whether to use file content cache.'),
+            use_streams: z.boolean().optional().describe('Whether to use stream processing for large files.'),
+            max_files: z.number().optional().describe('Maximum number of files to process.')
         },
         async (params) => {
             logInfo(`Executing merge_content tool with params: ${JSON.stringify(params)}`);
