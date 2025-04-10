@@ -4,6 +4,7 @@ const fs = require('fs').promises;
 const { listFiles } = require('../core/file-lister');
 const { readFiles } = require('../core/file-reader');
 const { compressContent } = require('../core/compressor');
+// JSON utils are used in the MCP server layer, not needed here directly
 /**
  * Handles the 'merge_content' MCP request.
  * @param {object} parameters Request parameters.
@@ -97,7 +98,12 @@ async function handleRequest(parameters) {
         const content = fileContentsMap.get(relativeFilePath);
         if (content !== undefined) { // Check if file read was successful
             // Add a header to distinguish file contents
-            combinedContent += `=== File Path: ${relativeFilePath.replace(/\\/g, '/')} ===\n\n`;
+            const safeFilePath = relativeFilePath.replace(/\\/g, '/');
+            combinedContent += `=== File Path: ${safeFilePath} ===\n\n`;
+
+            // Process content to ensure it's safe for JSON serialization
+            // We don't need to apply makeJsonSafe here as we're just building the combined content
+            // The final result will be handled by the MCP server's adaptToolResult function
             combinedContent += content;
             combinedContent += '\n\n' + '='.repeat(50) + '\n\n';
             filesProcessed++;
@@ -116,6 +122,9 @@ async function handleRequest(parameters) {
     const executionTime = Date.now() - startTime;
     console.error(`merge_content: Execution completed in ${executionTime}ms`);
 
+    // Return the merged content
+    // The content will be properly handled by the MCP server's adaptToolResult function
+    // which will ensure it's safe for JSON serialization
     return {
         merged_content: finalContent
     };

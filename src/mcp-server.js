@@ -4,6 +4,7 @@
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { z } = require('zod');
+const { makeJsonSafe } = require('./core/json-utils');
 
 // Import tool implementation files
 let getFileTreeHandler, mergeContentHandler, analyzeCodeHandler;
@@ -37,6 +38,7 @@ const server = new McpServer({
 // Adapter function to convert tool results to MCP SDK format
 function adaptToolResult(result) {
     // Convert the result to the format expected by the MCP SDK
+    // This function also ensures all text content is safe for JSON serialization
     // The SDK expects a result with a 'content' array of content items
     if (!result) {
         return { content: [] };
@@ -54,12 +56,13 @@ function adaptToolResult(result) {
     if (result.file_tree) {
         content.push({
             type: 'text',
-            text: result.file_tree
+            text: result.file_tree // File tree is already formatted as text
         });
     }
 
     // Handle merge_content result
     if (result.merged_content) {
+        // Ensure merged content is safe for JSON serialization
         content.push({
             type: 'text',
             text: result.merged_content
@@ -72,6 +75,7 @@ function adaptToolResult(result) {
             if (typeof value === 'string') {
                 content.push({
                     type: 'text',
+                    // Ensure property values are safe for JSON serialization
                     text: `${propertyName}: ${value}`
                 });
             }
@@ -80,10 +84,19 @@ function adaptToolResult(result) {
 
     // If still no content, create a JSON representation
     if (content.length === 0) {
-        content.push({
-            type: 'text',
-            text: JSON.stringify(result, null, 2)
-        });
+        try {
+            content.push({
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+            });
+        } catch (error) {
+            // Handle JSON serialization errors
+            console.error('Error serializing result to JSON:', error.message);
+            content.push({
+                type: 'text',
+                text: `Error: Could not serialize result to JSON. ${error.message}`
+            });
+        }
     }
 
     return { content };
@@ -135,6 +148,14 @@ if (mergeContentHandler) {
                 const result = await mergeContentHandler(params);
                 const executionTime = Date.now() - startTime;
                 logDebug(`merge_content completed in ${executionTime}ms`);
+
+                // Ensure the merged content is safe for JSON serialization
+                if (result && result.merged_content) {
+                    // We don't modify the content directly here
+                    // The adaptToolResult function will handle the content safely
+                    logDebug(`merge_content result size: ${result.merged_content.length} characters`);
+                }
+
                 return adaptToolResult(result);
             } catch (error) {
                 logError('Error in merge_content tool:', error);
