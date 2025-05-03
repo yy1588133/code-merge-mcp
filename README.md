@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/yy1588133-code-merge-mcp-badge.png)](https://mseep.ai/app/yy1588133-code-merge-mcp)
+
 # Code Merge MCP 服务器
 
 Code Merge MCP 是一个基于 Model Context Protocol (MCP) 的服务器实现，专为代码文件内容提取、合并和分析而设计。它提供了一套强大的工具，帮助大语言模型（如GPT、Claude）更有效地处理和分析代码库。
